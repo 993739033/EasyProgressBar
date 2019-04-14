@@ -2,15 +2,18 @@ package com.test.scode.easyprogressbar;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
 
 public class EasyProgressBar2 extends View {
-    private float C_R = 80;// 内圆半径大小
-    private float P_W = 10;//进度条宽度
+    private float C_R = 40;// 内圆半径大小
+    private float P_W = 5;//进度条宽度
+    private float P_M_W = 5;//Mark宽度
     private float M_W = 10;//圆距离view边界距离
     private float C_O_R = C_R + P_W / 2;//外圆的半径
     private int P_Bg_Color = R.color.colorGary;//进度条背景颜色
@@ -30,15 +33,21 @@ public class EasyProgressBar2 extends View {
     Paint P_C_Fg;//触发圆的前景画笔
     Paint P_T;//字体画笔
     Paint P_M;//标志画笔
+    boolean isAniming = false;//圆是否处于动画状态
+
 
     RectF Rect_C;//内圆Rect
-    RectF Rect_O_B_C;//外圆背景Rect
-    RectF Rect_O_F_C;//外圆前景Rect
     Point pointCenter;//圆心
     Context context;
 
-    ValueAnimator animator;//第一阶段动画
 
+    public static String STATUS_SUCCESS = "Success";//成功状态
+    public static String STATUS_FAILED = "Failed";//失败状态
+
+    public static String statusNow = STATUS_SUCCESS;//当前状态
+
+
+    ValueAnimator animator;//第一阶段动画
 
     public EasyProgressBar2(Context context) {
         super(context);
@@ -58,6 +67,11 @@ public class EasyProgressBar2 extends View {
     //设置进度
     public void setProgress(float progress) {
         this.progress = progress;
+        if (this.progress > 1) {
+            this.progress = 1;
+        } else if (this.progress < 0) {
+            this.progress = 0;
+        }
         postInvalidate();
     }
 
@@ -100,6 +114,7 @@ public class EasyProgressBar2 extends View {
 
         P_T = new Paint();
         P_T.setColor(context.getResources().getColor(TextColor));
+        P_T.setTextSize(dip2px(TextSize));
         P_T.setTextAlign(Paint.Align.CENTER);
         P_T.setAntiAlias(true);
         P_T.setDither(true);
@@ -109,7 +124,7 @@ public class EasyProgressBar2 extends View {
         P_M.setColor(context.getResources().getColor(M_Color));
         P_M.setAntiAlias(true);
         P_M.setDither(true);
-        P_M.setStrokeWidth(dip2px(P_W));
+        P_M.setStrokeWidth(dip2px(P_M_W));
         P_M.setStyle(Paint.Style.STROKE);
         P_M.setStrokeCap(Paint.Cap.ROUND);
         P_M.setStrokeJoin(Paint.Join.ROUND);
@@ -121,15 +136,101 @@ public class EasyProgressBar2 extends View {
         //初始化内外圆Rect
         Rect_C = new RectF(pointCenter.x - dip2px(C_R), pointCenter.y - dip2px(C_R),
                 pointCenter.x + dip2px(C_R), pointCenter.y + dip2px(C_R));
-
-        //圆背景
-        Rect_O_B_C = new RectF(pointCenter.x - dip2px(C_R + P_W / 2), pointCenter.y - dip2px(C_R + P_W / 2),
-                pointCenter.x + dip2px(C_R + P_W / 2), pointCenter.x + dip2px(C_R + P_W / 2));
-
-        //圆前景
-        Rect_O_F_C = new RectF(pointCenter.x - dip2px(C_R - P_W / 2), pointCenter.y - dip2px(C_R - P_W / 2),
-                pointCenter.x + dip2px(C_R - P_W / 2), pointCenter.x + dip2px(C_R - P_W / 2));
     }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        drawProgress(canvas);
+        drawCircle(canvas);
+        drawText(canvas);
+        drawMark(canvas);
+    }
+
+    //画进度条
+    private void drawProgress(Canvas canvas) {
+        canvas.drawArc(Rect_C, FROM_ANGLE, 360, false, P_Bg_P);//进度前景
+        canvas.drawArc(Rect_C, FROM_ANGLE, progress * 360, false, P_Fg_P);//进度背景
+    }
+
+
+    //画圆
+    private void drawCircle(Canvas canvas) {
+        if (isAniming) {
+            canvas.drawCircle(pointCenter.x, pointCenter.y, dip2px(C_R), P_C_Bg);
+            canvas.drawCircle(pointCenter.x, pointCenter.y, dip2px(C_O_R - P_W / 2), P_C_Fg);
+        }
+        if (progress >= 1) {
+            onCircleAnim();
+        }
+    }
+
+    private void drawMark(Canvas canvas) {
+        if (C_O_R - P_W / 2 <= 0) {
+            Path path = initMarkPath();
+            canvas.drawPath(path, P_M);
+        }
+    }
+
+    private void drawText(Canvas canvas) {
+        if (progress >= 1) return;
+        String text = (int) (progress * 100) + "%";
+        canvas.drawText(text, pointCenter.x, getTextCenterY(pointCenter.y, P_T), P_T);
+    }
+
+
+    private Path initMarkPath() {
+        if (statusNow.equals(STATUS_SUCCESS)) {
+            return getSuccessPath();
+        } else {
+            return getFailedPath();
+        }
+    }
+
+    private Path getSuccessPath() {
+        Path path = new Path();
+        float C_R_M = (float) (C_R * 1.3);//这里调整Mark的大小
+        path.moveTo(pointCenter.x - dip2px((C_R_M / 3)), pointCenter.y);
+        path.lineTo(pointCenter.x, pointCenter.y + dip2px((C_R_M / 3)));
+        path.lineTo(pointCenter.x + dip2px((float) (((1 + Math.sqrt(2)) / 6 * C_R_M))), (float) (pointCenter.y - (Math.sqrt(2) * C_R_M) / 2));
+        return path;
+    }
+
+    private Path getFailedPath() {
+        Path path = new Path();
+        float C_R_M = (float) (C_R * 1.3);//这里调整Mark的大小
+        path.moveTo(pointCenter.x - dip2px(C_R_M / 3), pointCenter.y - dip2px(C_R_M / 3));
+        path.lineTo(pointCenter.x + dip2px(C_R_M / 3), pointCenter.y + dip2px(C_R_M / 3));
+
+        path.moveTo(pointCenter.x + dip2px(C_R_M / 3), pointCenter.y - dip2px(C_R_M / 3));
+        path.lineTo(pointCenter.x - dip2px(C_R_M / 3), pointCenter.y + dip2px(C_R_M / 3));
+        return path;
+    }
+
+
+    //加载成功后第一阶段动画
+    public void onCircleAnim() {
+        if (animator == null) {
+            isAniming = false;
+            animator = ValueAnimator.ofFloat(C_O_R, 0);
+        } else if (animator.isRunning() || C_O_R == 0) {
+            return;
+        } else {
+            isAniming = false;
+        }
+        animator.setDuration(500);
+        animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                float progress = (float) animation.getAnimatedValue();
+                C_O_R = progress;
+                postInvalidate();
+            }
+        });
+        animator.start();
+        isAniming = true;
+    }
+
 
     /**
      * 将dp转换成px
@@ -149,4 +250,10 @@ public class EasyProgressBar2 extends View {
         setMeasuredDimension(2 * WHSize, 2 * WHSize);
     }
 
+
+    private float getTextCenterY(float Ty, Paint textPaint) {
+        Paint.FontMetricsInt fmi = textPaint.getFontMetricsInt();
+        float mTextCenterY = Ty - fmi.top / 2 - fmi.bottom / 2;
+        return mTextCenterY;
+    }
 }
